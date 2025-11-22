@@ -18,45 +18,52 @@ export default function CaptureScreen() {
     const [currentLocation, setCurrentLocation] = useState(null);
     const [locationLoading, setLocationLoading] = useState(true);
     const [cameraReady, setCameraReady] = useState(false);
-    const [cameraKey, setCameraKey] = useState(0);
     const cameraRef = useRef(null);
     const { addRecord } = useData();
 
     useEffect(() => {
-        (async () => {
+        let isMounted = true;
+        
+        const setup = async () => {
             try {
                 const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
-                setHasPermission(cameraStatus === 'granted');
+                if (isMounted) setHasPermission(cameraStatus === 'granted');
 
                 const { status: audioStatus } = await Camera.requestMicrophonePermissionsAsync();
-                setAudioPermission(audioStatus === 'granted');
+                if (isMounted) setAudioPermission(audioStatus === 'granted');
 
-                setLocationLoading(true);
-                getCurrentLocation()
-                    .then(location => {
-                        setCurrentLocation(location);
-                        setLocationLoading(false);
-                    })
-                    .catch(error => {
-                        setLocationLoading(false);
-                    });
+                if (isMounted) setLocationLoading(true);
+                try {
+                    const location = await getCurrentLocation();
+                    if (isMounted) setCurrentLocation(location);
+                } catch (error) {
+                    console.warn("Could not get initial location:", error);
+                } finally {
+                    if (isMounted) setLocationLoading(false);
+                }
 
             } catch (error) {
-                setHasPermission(false);
+                if (isMounted) setHasPermission(false);
+                console.error("Error during initial setup:", error);
             }
-        })();
+        };
+
+        setup();
+
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     useFocusEffect(
         React.useCallback(() => {
-            setCameraReady(false);
-            setCameraKey(prev => prev + 1);
-
             return () => {
                 if (isRecording && cameraRef.current) {
+                    console.log("Stopping recording on blur.");
                     cameraRef.current.stopRecording();
                     setIsRecording(false);
                 }
+                setCameraReady(false); 
             };
         }, [isRecording])
     );
@@ -72,7 +79,7 @@ export default function CaptureScreen() {
 
     const restartCamera = () => {
         setCameraReady(false);
-        setCameraKey(prev => prev + 1);
+        Alert.alert('Camera Restart', 'Please try navigating away and back to reload the camera, or restart the app.');
     };
 
     const takePicture = async () => {
@@ -89,11 +96,9 @@ export default function CaptureScreen() {
                 Alert.alert('Success', 'Evidence captured successfully!');
             } catch (error) {
                 Alert.alert('Error', 'Failed to capture evidence. Camera may need to be restarted.');
-                restartCamera();
             }
         } else {
             Alert.alert('Camera Not Ready', 'Please wait for camera to initialize or restart the camera.');
-            restartCamera();
         }
     };
 
@@ -117,20 +122,17 @@ export default function CaptureScreen() {
                 Alert.alert('Success', 'Video evidence captured successfully!');
             } catch (error) {
                 Alert.alert('Error', 'Failed to record video');
-                restartCamera();
             } finally {
                 setIsRecording(false);
             }
         } else {
             Alert.alert('Camera Not Ready', 'Please wait for camera to initialize.');
-            restartCamera();
         }
     };
 
     const stopRecording = () => {
         if (cameraRef.current && isRecording) {
             cameraRef.current.stopRecording();
-            setIsRecording(false);
         }
     };
 
@@ -206,7 +208,6 @@ export default function CaptureScreen() {
     return (
         <View style={styles.container}>
             <Camera
-                key={cameraKey}
                 ref={cameraRef}
                 style={styles.camera}
                 type={cameraType}
